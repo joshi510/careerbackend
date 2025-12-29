@@ -216,6 +216,18 @@ async def start_test(
             detail="Student profile not found. Please complete your registration."
         )
     
+    # Check if user has already completed a test (ONE ATTEMPT ONLY)
+    completed_attempt = db.query(TestAttempt).filter(
+        TestAttempt.student_id == current_user.id,
+        TestAttempt.status == TestStatus.COMPLETED
+    ).first()
+    
+    if completed_attempt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You have already completed the test. Each student can attempt the test only once."
+        )
+    
     # Check if user has an in-progress test
     existing_attempt = db.query(TestAttempt).filter(
         TestAttempt.student_id == current_user.id,
@@ -861,6 +873,11 @@ class SectionMetadataResponse(BaseModel):
 class SectionsListResponse(BaseModel):
     current_section: int
     sections: List[SectionMetadataResponse]
+    can_attempt_test: bool = True  # Whether student can start a new test attempt
+    completed_test_attempt_id: Optional[int] = None  # ID of completed test if exists
+    
+    class Config:
+        from_attributes = True
 
 
 @router.get("/sections", response_model=SectionsListResponse)
@@ -870,6 +887,21 @@ async def get_sections(
     current_user: User = Depends(require_student)
 ):
     """Get all active sections with status for current student's test attempt"""
+    # Check if student has already completed a test (ONE ATTEMPT ONLY)
+    # Query for ANY completed attempt for this student
+    completed_attempt = db.query(TestAttempt).filter(
+        TestAttempt.student_id == current_user.id,
+        TestAttempt.status == TestStatus.COMPLETED
+    ).order_by(TestAttempt.completed_at.desc()).first()  # Get most recent completed attempt
+    
+    can_attempt_test = completed_attempt is None
+    completed_test_attempt_id = completed_attempt.id if completed_attempt else None
+    
+    # Debug logging
+    print(f"🔵 get_sections for user {current_user.id}: can_attempt_test={can_attempt_test}, completed_test_attempt_id={completed_test_attempt_id}")
+    if completed_attempt:
+        print(f"   Found completed attempt: ID={completed_attempt.id}, completed_at={completed_attempt.completed_at}")
+    
     # Find current test attempt for this student (in progress or completed)
     if attempt_id:
         test_attempt = db.query(TestAttempt).filter(
@@ -1152,9 +1184,12 @@ async def get_sections(
     
     response = SectionsListResponse(
         current_section=current_section_index,
-        sections=sections_result
+        sections=sections_result,
+        can_attempt_test=can_attempt_test,
+        completed_test_attempt_id=completed_test_attempt_id
     )
     print(f"🔵 Response sections count: {len(response.sections)}")
+    print(f"🔵 Response can_attempt_test: {response.can_attempt_test}, completed_test_attempt_id: {response.completed_test_attempt_id}")
     return response
 
 
