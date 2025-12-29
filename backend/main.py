@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from config import settings
-from database import engine, Base, SessionLocal
+from backend.config import settings
+from backend.database import engine, Base, SessionLocal
 from routes import auth, test_access, test, student_result, counsellor_notes, admin_analytics
 import os
-from models import (
+from backend.models import (
     User, Student, Counsellor, Question, TestAttempt,
     Answer, Score, InterpretedResult, Career, UserRole, Section,
     SectionProgress
