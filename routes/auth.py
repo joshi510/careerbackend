@@ -7,6 +7,7 @@ from models.user import User, UserRole
 from models.student import Student
 from auth.jwt import create_access_token
 from auth.dependencies import get_current_user, require_admin
+from database import get_db
 import hashlib
 
 router = APIRouter(prefix="/auth", tags=["auth"])
