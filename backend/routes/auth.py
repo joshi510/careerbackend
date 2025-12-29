@@ -1,15 +1,13 @@
-from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr, validator
 from passlib.context import CryptContext
-from database import get_db, engine
 from models.user import User, UserRole
 from models.student import Student
 from auth.jwt import create_access_token
 from auth.dependencies import get_current_user, require_admin
-from config import settings
+import hashlib
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -23,13 +21,17 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     if not hashed_password.startswith("$2") or len(hashed_password) < 60:
         # Plain text comparison for dev mode
         return plain_password == hashed_password
+    
     # Normal bcrypt verification for production
-    return pwd_context.verify(plain_password, hashed_password)
+    sha256_hash = hashlib.sha256(plain_password.encode("utf-8")).hexdigest()
+    
+    return pwd_context.verify(sha256_hash, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
     """Hash password"""
-    return pwd_context.hash(password)
+    sha256_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return pwd_context.hash(sha256_hash )
 
 
 class UserRegister(BaseModel):
