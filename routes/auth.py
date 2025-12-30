@@ -24,15 +24,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return plain_password == hashed_password
     
     # Normal bcrypt verification for production
-    sha256_hash = hashlib.sha256(plain_password.encode("utf-8")).hexdigest()
-    
-    return pwd_context.verify(sha256_hash, hashed_password)
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
     """Hash password"""
-    sha256_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
-    return pwd_context.hash(sha256_hash )
+    return pwd_context.hash(password)
 
 
 class UserRegister(BaseModel):
