@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import re
 from database import get_db
@@ -1335,14 +1335,14 @@ async def start_section(
             test_attempt_id=attempt_id,
             section_id=section.id,  # Use actual database section ID
             status=SectionStatus.IN_PROGRESS,
-            section_start_time=datetime.now()
+            section_start_time=datetime.now(timezone.utc)
         )
         db.add(progress)
     else:
         # Resume if paused, or continue if already in progress
         if progress.status == SectionStatus.NOT_STARTED:
             progress.status = SectionStatus.IN_PROGRESS
-            progress.section_start_time = datetime.now()
+            progress.section_start_time = datetime.now(timezone.utc)
         elif progress.status == SectionStatus.COMPLETED:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1350,12 +1350,12 @@ async def start_section(
             )
         elif progress.paused_at:
             # Resume from pause
-            paused_duration = (datetime.now() - progress.paused_at).total_seconds()
+            paused_duration = (datetime.now(timezone.utc) - progress.paused_at).total_seconds()
             progress.total_time_spent += int(paused_duration)
             progress.paused_at = None
             progress.status = SectionStatus.IN_PROGRESS
             if not progress.section_start_time:
-                progress.section_start_time = datetime.now()
+                progress.section_start_time = datetime.now(timezone.utc)
     
     db.commit()
     db.refresh(progress)
@@ -1377,46 +1377,53 @@ async def pause_section(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_student)
 ):
-    """Pause section timer"""
-    # First, find the section by ID or order_index
-    section = db.query(Section).filter(Section.id == section_id).first()
-    if not section and 1 <= section_id <= 5:
-        section = db.query(Section).filter(Section.order_index == section_id).first()
-    
-    if not section:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Section not found (ID: {section_id})"
-        )
-    
-    # Use actual database section ID to find progress
-    progress = db.query(SectionProgress).filter(
-        SectionProgress.test_attempt_id == attempt_id,
-        SectionProgress.section_id == section.id  # Use actual database section ID
-    ).first()
-    
-    if not progress:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Section progress not found"
-        )
-    
-    if progress.status != SectionStatus.IN_PROGRESS or progress.paused_at:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Section is not running"
-        )
-    
-    # Calculate time spent since start
-    if progress.section_start_time:
-        elapsed = (datetime.now() - progress.section_start_time).total_seconds()
-        progress.total_time_spent += int(elapsed)
-        progress.section_start_time = None
-    
-    progress.paused_at = datetime.now()
-    db.commit()
-    
-    return {"message": "Section paused", "total_time_spent": progress.total_time_spent}
+    try:
+        """Pause section timer"""
+        # First, find the section by ID or order_index
+        section = db.query(Section).filter(Section.id == section_id).first()
+        if not section and 1 <= section_id <= 5:
+            section = db.query(Section).filter(Section.order_index == section_id).first()
+        
+        if not section:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Section not found (ID: {section_id})"
+            )
+        
+        # Use actual database section ID to find progress
+        progress = db.query(SectionProgress).filter(
+            SectionProgress.test_attempt_id == attempt_id,
+            SectionProgress.section_id == section.id  # Use actual database section ID
+        ).first()
+        
+        if not progress:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Section progress not found"
+            )
+        
+        if progress.status != SectionStatus.IN_PROGRESS or progress.paused_at:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Section is not running"
+            )
+        
+        # Calculate time spent since start
+        if progress.section_start_time:
+            elapsed = (datetime.now(timezone.utc) - progress.section_start_time).total_seconds()
+            progress.total_time_spent += int(elapsed)
+            progress.section_start_time = None
+        
+        progress.paused_at = datetime.now(timezone.utc)
+        db.commit()
+        
+        return {"message": "Section paused", "total_time_spent": progress.total_time_spent}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/sections/{section_id}/resume")
@@ -1451,7 +1458,7 @@ async def resume_section(
         )
     
     # Resume timer
-    progress.section_start_time = datetime.now()
+    progress.section_start_time = datetime.now(timezone.utc)
     progress.paused_at = None
     progress.status = SectionStatus.IN_PROGRESS
     db.commit()
@@ -1507,7 +1514,10 @@ async def get_section_timer(
     
     current_time = progress.total_time_spent
     if progress.section_start_time and not progress.paused_at:
-        elapsed = (datetime.now() - progress.section_start_time).total_seconds()
+        if progress.section_start_time.tzinfo is None:
+            progress.section_start_time = progress.section_start_time.replace(tzinfo=timezone.utc)
+
+        elapsed = (datetime.now(timezone.utc) - progress.section_start_time).total_seconds()
         current_time = progress.total_time_spent + int(elapsed)
         
         # Enforce time limit - auto-complete if exceeded
@@ -1647,7 +1657,7 @@ async def submit_section(
     else:
         # Finalize timer
         if progress.section_start_time and not progress.paused_at:
-            elapsed = (datetime.now() - progress.section_start_time).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - progress.section_start_time).total_seconds()
             progress.total_time_spent += int(elapsed)
             progress.section_start_time = None
         

@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from database import get_db
@@ -48,7 +48,11 @@ def get_current_user(
 
 
 def require_role(allowed_roles: list[UserRole]):
-    def role_checker(current_user: User = Depends(get_current_user)) -> User:
+    def role_checker( request: Request, current_user: User = Depends(get_current_user)) -> User:
+
+        if request.method == "OPTIONS":
+            return None
+         
         # Compare enum values (current_user.role is UserRole enum, get its string value)
         if current_user.role.value not in [role.value for role in allowed_roles]:
             raise HTTPException(
